@@ -1,0 +1,67 @@
+---
+title: "Seasonal Shifts in Music Mood"
+output:
+  pdf_document: default
+  md_document:
+    variant: gfm
+---
+
+# Final Project – Spotify Music Mood Across Seasons
+
+**Authors:**  
+- Juan David Nieto Garcia (114065428)  
+- Erdenejargal Galtsuren (113065430)  
+
+**Course:** Data Mining Final Project  
+**Goal:** Explore how Spotify listening preferences and music mood (valence) change across seasons.
+
+---
+
+## Project Overview
+
+This project investigates whether **people listen to happier music in summer and sadder music in autumn/winter**.
+
+We use **Spotify AF Valence**, a numerical measure between `0` and `1`:
+- **1 → Happy / Cheerful / Positive songs**
+- **0 → Sad / Depressing / Angry songs**
+
+---
+
+## Dataset Information
+
+We used the dataset:
+
+> **Spotify Charts – All Audio Data**  
+> https://www.kaggle.com/datasets/sunnykakar/spotify-charts-all-audio-data/
+
+- Original file size: **27 GB (`merged_data.csv`)**
+- Contains **daily Top 200 Spotify charts** for over 60 countries (2017–2024)
+- Includes track metadata + 13 audio features from Spotify API
+
+---
+
+### Sample Datasets Included in This Repo
+
+To make this project easier to run, we created **sample versions of the original dataset**:
+
+| File | Description |
+|------|-------------|
+| `data/merged_data_sample.csv` | Small sample from original data |
+| `data/merged_data_filtered_sample.csv` | Only Canada + 2017 data |
+| `data/merged_data_trimmed_sample.csv` | Unnecessary columns removed |
+
+Full dataset **is not uploaded to GitHub** due to size limits. You can download it from Kaggle.
+
+---
+
+## Research Question
+
+**“Do people listen to happier music during summer compared to autumn and winter?”**
+
+---
+
+## How to Run This Project
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/ErkaGlt/finalproject-spotify-mood.git
