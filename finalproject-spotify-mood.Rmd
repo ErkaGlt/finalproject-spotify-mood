@@ -1,0 +1,347 @@
+---
+title: "Final Project - First Visualization"
+author: "Group 5"
+output:
+  pdf_document:
+    toc: false
+  html_document:
+    toc: false
+    theme: default
+---
+<center>
+
+Juan David Nieto Garcia — 114065428  
+Erdenejargal Galtsuren — 113065430
+
+<br>
+
+### **Seasonal Shifts in Music Mood: Exploring How Spotify Listening Preferences Change Across Seasons**
+
+**Question:**
+Do seasonal changes influence the emotional mood of music people listen to? Specifically, do listeners tend to play happier (higher valence) music during summer months and sadder (lower valence) music during autumn and winter?
+
+</center>
+
+---
+```{r options, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,        
+  warning = FALSE,    
+  message = FALSE,     
+  comment = NA         
+)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(lubridate)
+library(knitr)
+library(kableExtra)
+library(dplyr)
+library(ggplot2)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(viridis)
+library(data.table)
+library(readr)
+library(tidyr)
+```
+```{r}
+file.info("merged_data.csv")$size
+```
+\section*{Data Pre-Processing}
+Our dataset, Spotify Charts – All Audio Data (merged_data.csv), is approximately 27 GB. Loading it directly into R would exceed the memory capacity of a standard computer, so we first inspect only a sample of the data:
+
+```{r}
+sample_data <- read_csv("merged_data.csv", n_max = 100000)
+spec(sample_data)
+system("wc -l merged_data.csv")
+```
+
+To focus on seasonal listening trends, we removed columns that do not contribute to mood or time-based analysis (e.g., URLs, album details, and detailed audio features). These variables increase file size and memory usage without adding meaningful insight.
+
+Because the dataset is very large (27GB+), we process it in chunks rather than loading it all at once. The cleaned dataset keeps only the essential columns such as date, streams, and af_valence.
+
+```{r}
+# Columns to remove because they are not useful for seasonal mood analysis
+cols_to_drop <- c(
+  "url", "chart", "trend", "track_id", "album",
+  "duration_ms", "explicit", "release_date", "available_markets",
+  "af_danceability", "af_key", "af_loudness", "af_mode",
+  "af_speechiness", "af_acousticness", "af_instrumentalness",
+  "af_liveness", "af_tempo", "af_time_signature"
+)
+
+# Output file name
+out_file <- "merged_data_trimmed.csv"
+if (file.exists(out_file)) file.remove(out_file)
+
+first_chunk <- TRUE
+
+process_chunk <- function(chunk, pos) {
+  # Drop irrelevant columns
+  chunk <- chunk %>% select(-any_of(cols_to_drop))
+  
+  # Write the first chunk with headers, remaining chunks appended
+  write_csv(chunk, out_file, append = !first_chunk, col_names = first_chunk)
+  
+  if (first_chunk) message("Header written.")
+  message("Processed up to row: ", pos)
+  
+  first_chunk <<- FALSE
+}
+
+# Process dataset in chunks (250,000 rows at a time)
+read_csv_chunked(
+  "merged_data.csv",
+  callback = SideEffectChunkCallback$new(process_chunk),
+  chunk_size = 26174270
+)
+```
+Check new file details 
+
+```{r}
+file.exists("merged_data_trimmed.csv")   # TRUE
+file.info("merged_data_trimmed.csv")$size
+```
+The trimmed file size is now approximately 2.2 GB, making it much easier to load into R. It still contains all 26 million rows, but only the relevant columns needed for seasonal analysis.
+```{r}
+# Preview of the New File
+read_csv("merged_data_trimmed.csv", n_max = 5)
+```
+
+```{r}
+spec(read_csv("merged_data_trimmed.csv", n_max = 0))
+```
+Now let's load the file 
+
+```{r}
+all_songs <- fread("merged_data_trimmed.csv")
+```
+We'll start by taking a look at all of the unique countries. we are interested in doing analysis on the ones that have seasons, so some of the countries near the equator may be discarded moving forward
+
+```{r}
+# Get unique countries
+unique_countries <- unique(all_songs$region)
+
+# Preview
+head(unique_countries, 20)  # first 20 countries
+length(unique_countries)    # total number of unique countries
+```
+
+Now we'll group all of the songs by region and check which countries have the most data:
+```{r}
+country_counts <- all_songs %>%
+  group_by(region) %>%
+  summarise(song_count = n()) %>%
+  arrange(desc(song_count))
+
+# Preview top 10 countries
+head(country_counts, 67)
+```
+```{r}
+# had to change the name of the US since it would not appear in the plot 
+region_summary <- all_songs %>%
+  group_by(region) %>%
+  summarise(song_count = n()) %>%
+  mutate(
+    region = case_when(
+      region == "United States" ~ "United States of America",
+      TRUE ~ region
+    )
+  )
+# Load world map
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+# Join map with your data (region -> name)
+map_data <- left_join(world, region_summary, by = c("name" = "region"))
+
+# Plot: color = number of songs
+ggplot(map_data) +
+  geom_sf(aes(fill = song_count)) +
+  scale_fill_viridis_c(
+    option = "plasma",
+    na.value = "grey90",
+    labels = scales::comma
+  ) +
+  theme_minimal() +
+  labs(
+    title = "Number of Songs by Country",
+    fill = "Song Count"
+  )
+```
+```{r}
+
+nrow(region_summary)
+region_summary$region
+
+```
+We are going to remove countries from latin america, some from the middle east and india since these don't have regular seasons due to their proximity to the equator
+
+```{r}
+latin_america <- c(
+  "Argentina", "Bolivia", "Brazil", "Chile", "Colombia", "Costa Rica",
+  "Dominican Republic", "Ecuador", "El Salvador", "Guatemala", "Honduras",
+  "Mexico", "Nicaragua", "Panama", "Paraguay", "Peru", "Uruguay"
+)
+
+middle_east <- c(
+  "Israel", "Turkey", "Saudi Arabia", "United Arab Emirates", "Egypt"
+)
+
+exclude <- c(latin_america, middle_east, "India")
+
+```
+```{r}
+# Filter out excluded regions from all_songs
+all_songs_filtered <- all_songs %>%
+  filter(!region %in% exclude)
+
+# Check result
+nrow(all_songs_filtered)   # number of remaining rows
+length(unique(all_songs_filtered$region))  # number of remaining countries
+```
+Now we'll make a new csv file with the filtered data and remove the data from `all_songs` to avoid issues with memory:
+
+```{r}
+# Write the filtered data to a new CSV file
+fwrite(all_songs_filtered, "merged_data_filtered.csv")
+
+# Remove the large original object to free memory
+rm(all_songs)
+```
+
+
+We group the songs by region and filter for only canada to have a preliminary view on the data
+```{r}
+# Group by country (region)
+all_songs_filtered <- all_songs_filtered %>%
+  group_by(region)
+
+# Extract only the songs for Canada
+Canada_songs <- all_songs_filtered %>%
+  filter(region == "Canada")
+
+# Optional: check how many songs Canada has
+nrow(Canada_songs)
+```
+
+```{r}
+head(Canada_songs)
+
+```
+Check for date ranges on the subset
+```{r}
+# Get min and max dates for Canada
+Canada_date_range <- Canada_songs %>%
+  summarise(
+    min_date = min(date, na.rm = TRUE),
+    max_date = max(date, na.rm = TRUE)
+  )
+
+Canada_date_range
+```
+Now let's take a closer look at the songs from 2017
+```{r}
+# Filter Canada songs for 2017 using IDate comparison
+Canada_songs_2017 <- all_songs_filtered %>%
+  filter(
+    region == "Canada" &
+    date >= as.IDate("2017-01-01") &
+    date <= as.IDate("2017-12-31")
+  )
+
+# Check result
+nrow(Canada_songs_2017)
+
+```
+
+```{r}
+tail(Canada_songs_2017)
+```
+sort by date
+```{r}
+# Sort by date ascending
+Canada_songs_2017 <- Canada_songs_2017 %>%
+  arrange(date)
+
+# Quick check
+head(Canada_songs_2017)
+```
+
+```{r}
+tail(Canada_songs_2017)
+```
+\section*{First plot -  Understanding AF Valence (Song Happiness Level)}
+
+`af_valence` is a metric from Spotify’s audio features that measures the **musical positivity or happiness** of a song.  
+- Values close to **1** → happy, cheerful, euphoric songs  
+- Values close to **0** → sad, depressed, angry songs  
+
+To explore how overall music mood changes across time, we first plot raw valence values for Canadian songs in 2017.
+
+```{r}
+ggplot(Canada_songs_2017, aes(x = date, y = af_valence)) +
+  geom_point(alpha = 0.3, color = "steelblue", na.rm = TRUE) +
+  theme_minimal() +
+  labs(
+    title = "AF Valence of Canadian Songs in 2017",
+    x = "Date",
+    y = "AF Valence(Happiness Level)"
+  )
+
+```
+
+The initial scatter plot shows individual song valence values across time, but the data appears highly scattered and noisy, making it difficult to identify any meaningful trends.
+
+To better understand overall mood patterns, we calculate the weighted daily average of af_valence. In this method, each song’s valence is weighted by its number of streams. This way, songs that were listened to more frequently have a greater impact on the daily mood score.
+
+We chose this approach because streaming counts reflect how many people are listening to a song and, therefore, give a more accurate representation of the collective music mood among listeners on each day.
+
+\section*{Weighted Daily Valence Calculation}
+
+To understand how music mood (valence) changes across the year, we calculate the **weighted average valence per day**.  
+This means songs with more streams contribute more to the daily valence score — making the result more representative of what people were actually listening to.
+
+```{r}
+Canada_daily_valence <- Canada_songs_2017 %>%
+  filter(!is.na(af_valence) & !is.na(streams)) %>% 
+  group_by(date) %>%
+  summarise(
+    weighted_valence = sum(af_valence * streams) / sum(streams)  
+  ) %>%
+  ungroup()
+
+# Quick preview of the results
+head(Canada_daily_valence)
+```
+* af_valence * streams gives each song’s valence contribution proportional to its streams.
+
+* sum(af_valence * streams) / sum(streams) is the weighted mean for that day.
+
+* group_by(date) ensures one row per day.
+
+* Canada_daily_valence is now a tidy daily vector of weighted valence, ready to plot.
+```{r}
+Sys.setlocale("LC_TIME", "C")  # "C" is standard POSIX locale (English)
+
+ggplot(Canada_daily_valence, aes(x = date, y = weighted_valence)) +
+  geom_line(color = "steelblue") +
+  theme_minimal() +
+  labs(
+    title = "Daily Weighted AF Valence of Canadian Songs (2017)",
+    x = "Date",
+    y = "Weighted AF Valence"
+  )
+
+```
+\section*{Conclusion}
+
+Based on the weighted daily AF valence of Canadian Spotify streams in 2017, we can observe a clear seasonal trend in music mood preferences.
+
+- Valence levels rise from early spring and peak around **July (summer)**, indicating that listeners tend to prefer **happier, more positive songs** during this period.  
+- After summer, valence levels begin to decline, reaching lower values during **autumn**, suggesting a shift toward **sadder or moodier music**.
+
+These results support our research question — that seasonal changes may influence the emotional tone of the music people listen to, with summer associated with happier music and autumn showing a preference for lower-valence songs.
+
+
